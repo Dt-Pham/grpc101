@@ -6,6 +6,8 @@ import (
 	"grpc101/greet/greetpb"
 	"io"
 	"log"
+	"math/rand"
+	"strconv"
 	"time"
 
 	"google.golang.org/grpc"
@@ -21,9 +23,10 @@ func main() {
 
 	c := greetpb.NewGreetServiceClient(cc)
 
-	doUnary(c)
-	doServerStreaming(c)
-	doClientStreaming(c)
+	//doUnary(c)
+	//doServerStreaming(c)
+	//doClientStreaming(c)
+	doBiDiStreaming(c)
 }
 
 func doUnary(c greetpb.GreetServiceClient) {
@@ -116,4 +119,47 @@ func doClientStreaming(c greetpb.GreetServiceClient) {
 		log.Fatalf("Error while receiving: %v", err)
 	}
 	fmt.Println(res.Result)
+}
+
+func doBiDiStreaming(c greetpb.GreetServiceClient) {
+	stream, err := c.GreetEveryone(context.Background())
+	if err != nil {
+		log.Fatalf("error while client create stream %v", err)
+	}
+
+	waitc := make(chan struct{})
+	// go routine to send messages
+	go func() {
+		for i := 0; i < 10; i++ {
+			req := &greetpb.GreetEveryoneRequest{
+				Greeting: &greetpb.Greeting{
+					FirstName: "Duong " + strconv.Itoa(i),
+				},
+			}
+			fmt.Println("Sent: ", req)
+			err := stream.Send(req)
+			time.Sleep(time.Duration(rand.Intn(500)) * time.Millisecond)
+			if err != nil {
+				log.Fatalf("Error while sending streaming request to server %v", err)
+			}
+		}
+		stream.CloseSend()
+	}()
+
+	// go routine to receive messages
+	go func() {
+		for {
+			resp, err := stream.Recv()
+			if err == io.EOF {
+				close(waitc)
+				break
+			}
+			if err != nil {
+				log.Fatalf("Error while receiving streaming response from server %v", err)
+			}
+			fmt.Println("Received: ", resp.Result)
+		}
+	}()
+
+	<-waitc
 }
